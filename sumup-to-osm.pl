@@ -1,180 +1,437 @@
-#!/usr/bin/perl
+#!/usr/bin/perl -w
+#
 
 # SumUp reports https://me.sumup.com/en-gb/reports/overview outputs a
-# CSV file of transactions but each row contains both gross income,
-# SumUp's fee as an expense and the residual payout that is transfreed
-# to the client. OSM cannot parse the fee data nor can it import all
-# the descriptions which are spread across several columns. This
-# script splits the data into separate rows for gross income, fee and
-# net payout and merges descriptions into a single column. Output is
-# sent to STDOUT.
-
-# SumUp outputs transactions in a current and, optionally, a legacy
-# format which has less detail and fewer columns.  Of these, "last 4
-# digits" and "payout id" are significant. The script still should
-# work against the legacy format but it generates warnings as a less
-# detailed transcaction description is derived.
+# CSV file of transactions but OSM cannot parse the fee data nor can
+# it import all the descriptions which are spread across several
+# columns. This script splits out fee data into separate rows, and
+# merges descriptions into a single column.
 
 # Based on:  https://perlmaven.com/how-to-read-a-csv-file-using-perl
+
 # Ken Bailey, 1 Jan 2023.
-# Polished with: ChatGPT 3.5 1 Jun 2024.
+# v3 Added tax and tip count and totals. July 2025
+# v2 Added ignore tip amount Sept 2023
+# v1 Intial script - June 2023
 
 use strict;
 use warnings;
 use Text::CSV;
-# set value to 1 or more to enable debug output on STDERR
-use constant DEBUG => 0;
+use Pod::Usage;
+use Getopt::Long;
+# The above are core modules, those below are not.
+BEGIN {
+    eval {
+        require Text::CSV;
+        Text::CSV->import();
+        1;
+    } or die "$0: Missing required module Text::CSV. Try: cpan Text::CSV\n";
+#    eval {
+#        require JSON;
+#        JSON->import();
+#        1;
+#    } or die "$0: Missing required module JSON. Try: cpan JSON\n";
+} # end BEGIN!
 
-sub decimalise {
-        warn "$0: in sub decimalise\n" if DEBUG;
-	
-	my ($value) = @_;
-	warn "$0: in sub decimalise $value\n" if DEBUG;
-	die "$0: sub decimalise called with no value @_\n" unless defined($value);
-	warn "$0: in sub decimalise $value\n" if DEBUG;
-	$value =~ s/\s//g;
-	#
-	die "$0: Non-numeric value $value passed to sub decimalise\n" unless ($value =~ m/^[\d\.]*$/);
-	# ensure currency values contain trailing decimals even if zero.
-	unless ($value =~ m/^[\d\.]*$/ ) {
-	    warn "$0: value $value does not contain numbers or dots\n";
-	    $value = "0.00";
-	}
-	# pad to two decimal digits
-	$value .= "0" if $value =~ m/\.\d$/;
-	# pad to two decimal zeros if not decimal
-	$value .= "0" if $value =~ m/\.\d$/;
-	# pad to two zeroes if not zero
-	$value .= ".00" unless $value =~ m/\.\d{2}$/;
-	# prepend leading zero if starts with dot
-	$value = "0" . $value if ($value =~ m/^\./ );
-	warn "$0: sub decimalise @_ returning $value\n" if DEBUG;
-	die "$0: sub decimalise return value $value does not match required pattern\n" unless ($value =~ m/^\d+\.\d\d$/);
-	return $value;
-}
+my $version='3.0';
+my ($verbose,$debug,$report,$help);
 
-sub process_row {
-    my ($row, $rowcount) = @_;
-    warn "$0: in sub process_row $row, $rowcount\n" if DEBUG;
+GetOptions(
+    'verbose+'  => \$verbose, # 0, 1 or 2
+    'debug+'  => \$debug, # 0, 1
+    'report'  =>  \$report,
+    'help|h|?'    => \$help,       # sub { pod2usage(-verbose => ($verbose ? 2 : 1)) },
+    'version'   => sub { print "$0 $version\n"; exit(0) },
+    ) or pod2usage(1);
 
-    foreach my $key (keys %$row) {
-        warn "debug: row key is '$key', value is '$row->{$key}'\n" if DEBUG;
-    }
-    
-    if (defined($row->{'last 4 digits'})) {
-	# reduce last 4 digits from "**** **** **** 1234" to just "1234"
-	$row->{'last 4 digits'} =~ s/[*\s]//g;
+if ($help) {
+    if ($verbose) {
+        pod2usage(-msg => "\nHelp:\n", -verbose => 2, -exitval => 1);
     } else {
-	# last 4 digits is not provided in SumUp transaction report legacy format 
-        warn "Row $rowcount: 'last 4 digits' not defined, legacy format input suspected\n";
-        $row->{'last 4 digits'} = "(no card digits provided)";
+        pod2usage(-msg => "\n$0: use --help --verbose for more detail.\n", -verbose => 1, -exitval => 1);
     }
-    
-    unless (defined($row->{'payout id'})) {
-        warn "Row $rowcount: 'payout id' not defined, legacy format input suspected\n";
-        $row->{'payout id'} = "(no payout id provided)";
-    }
+}
 
-    my @currency_values = ('total', 'fee', 'payout', 'tax amount', 'tip amount');
-    for my $key (@currency_values) {
-        warn "debug: key is $key, \$row->{$key} is $row->{$key}\n" if DEBUG;
-	$row->{$key} = decimalise($row->{$key}) if defined $row->{$key};
+my $file = $ARGV[0] or die "Usage $0 <sumup_transactions_filename.csv> (See $0 --help)\n";
+
+if ($verbose) {
+    if ($verbose > 2) { $debug++;};
+} else {
+    $verbose = 0;
+}
+
+if ($debug) {
+    $verbose +=2;
+    if ($debug || $report) {
+	$|=1; # unbuffer output for debugging and report
+    }
+} else {
+    $debug=0;
+}
+
+if ($verbose || $report) {
+    warn "\n[INFO] $0 version $version " . localtime() . "\n";
+    warn "[INFO] (running with verbose=$verbose debug=$debug report=$report)\n";
+    warn "[INFO] Input file: $ARGV[0] \n";
+}
+
+
+# hash for various counters and totals
+my %counter = (
+    rowcount => 0,
+    #    total_gtax => 0, # is this used or just a typo?
+    tax_count => 0,
+    total_tax => 0,
+    tips_count => 0,
+    total_tips => 0,
+    fees_count => 0,
+    total_fees => 0, 
+    total_sales => 0,
+    payout_count => 0,
+    total_payout => 0,
+    zerovalue_count => 0,
+    );
+
+# hash to store, then count, card types 
+# my $cardtype; # not yet used but its VISA, MASTERCARD or AMEX.
+
+open(my $data, '<', $file) or die "Could not open '$file' $!\n";
+
+# Build hash to validate header row names
+# We could put these in an array and use a module instead
+my %known = (
+    "email" => "email",
+    "date" => "date",
+    "transaction id" => "transaction id",
+    "transaction type" => "transaction type",
+    "status" => "status",
+    "card type" => "card type",
+    "last 4 digits" => "last 4 digits",
+    "process as" => "process as",
+    "payment method" => "payment method",
+    "entry mode" => "entry mode",
+    "auth code" => "auth code",
+    "description" => "description",
+    "total" => "total",
+    "net sale" => "net sale",
+    "tax amount" => "tax amount",
+    "tip amount" => "tip amount",
+    "fee" => "fee",
+    "payout" => "payout",
+    "payout date" => "payout date",
+    "payout id" => "payout id",
+    "reference" => "reference",
+    );
+
+# Establish CSV object
+my $csv = Text::CSV->new({ sep_char => ',', binary => 1, auto_diag => 1 });
+
+# import header row
+$csv->header ($data, { munge_column_names => sub {
+    # { munge_column_names => "lc" });
+    s/\s+$//;
+    s/^\s+//;
+    # check header name against known names
+    $known{lc $_} or die "$0: Unknown column header '$_' in $data";
+		       }
+	      }
+    );
+
+# print new header row for OSM
+print "Date,Reference,Amount\n";
+
+$counter{'rowcount'}=1; # start at 1 because we have read the header 
+# Loop through rows
+while (my $row = $csv->getline_hr ($data)) {
+    $counter{'rowcount'}++;
+    warn "[INFO] row count is $counter{'rowcount'}\n" if $verbose;
+    # normalise any currency fields via sub &decimalise to ensure values contain two trailing decimals even if zero.
+    $row->{total} = decimalise($row->{total}) if $row->{total}; 
+    $row->{fee} = decimalise($row->{fee}) * -1 if $row->{fee};
+    $row->{payout} = decimalise($row->{payout}) if $row->{payout};
+    $row->{'tax amount'} = decimalise($row->{'tax amount'}) if $row->{'tax amount'};
+    $row->{'tip amount'} = decimalise($row->{'tip amount'}) if $row->{'tip amount'};
+    #
+    # 'transaction type' is either "Sale" or "Payout"
+    if ($row->{'transaction type'} eq "Sale") {
+	print "\n[INFO] processing row $counter{'rowcount'}: $row->{'transaction type'} $row->{status}\n" if ($verbose > 1);
+     	# status is either "Successful", "Failed" or "Cancelled"
 	
-	# NB Net sale,Tax amount,Tip amount are not yet used in this script. Net sale is factored-in but throw error if the other two appear.
-	if  ($key =~ m/^tax amount|tip amount$/) {
-	    warn "debug: checking $key, \$row->{$key} is zero\n" if DEBUG;
-	    if  (defined $row->{$key}) {
-		warn "$0: row $rowcount $key contains non-zero value $row->{$key}\n" unless ( $row->{$key} =~ m/^[0\.]*$/);
-		sleep DEBUG if DEBUG;
+	# Lets handle the Failed cases first
+	if ($row->{status} =~ m/failed|cancelled/i ) {
+	    
+	    # Although we could retain failed and cancelled transactions
+	    # as zero value rows for ease of reference, OSM does not
+	    # import zero-value transactions, so its pointless trying to
+	    # keep them. In case of dispute, refer to SumUp's transaction
+	    # record directly.
+	    
+	   
+	    $counter{'zerovalue_count'}++;
+	    warn "[INFO] skipping zero-value $row->{status} transaction\n" if $verbose;
+	    next;
+	    
+	} elsif  ($row->{status} eq "Successful") {
+	    
+	    warn "[INFO] Processing row $counter{'rowcount'} for $row->{'status'} transaction\n" if $debug;
+	    warn "[INFO] transaction type is $row->{'transaction type'} \n" if $debug;
+	    warn "[INFO] status is $row->{status}\n" if $debug; 
+	    
+	    # reduce last 4 digits from "**** **** **** 1234" to just "1234"
+	    $row->{'last 4 digits'} =~ s/\*//g;
+	    $row->{'last 4 digits'} =~ s/\s*//g;	
+	    
+	    if ( $row->{total} ) {
+		$counter{'sales_count'}++;
+		$counter{'total_sales'} += $row->{total};
+		warn "[INFO] $counter{'sales_count'} sales with running total_sales of " . decimalise($counter{'total_sales'}) . "\n" if $verbose;
 	    }
+	    
+	    if ( $row->{fee} ) {
+		$counter{'fees_count'}++;
+		$counter{'total_fees'} -= $row->{fee};
+		warn "[INFO] $counter{'fees_count'} fees with $row->{fee} added to running total_fees of " . decimalise($counter{'total_fees'}) . "\n" if $verbose;
+	    }
+	    
+	    # NB Net sale, Tax amount and Tip amount are not expected to
+	    # be used. Net sale is factored-in but we keep track of these
+	    # and throw an error after all is processed.  Tax amount is
+	    # advisory, not deductible at source, so can be ignored. If it
+	    # appears it probably means the card reader environment has
+	    # default values of 20% VAT.
+	    
+	    # Tips, should there ever be any, are income to be treated as
+	    # donations.
+	    
+	    if ($row->{'tax amount'}) {
+		if ( $row->{'tax amount'} != 0 ) {
+		    $counter{'tax_count'}++; # only count positive tax amount rows
+		    $counter{'total_tax'} += $row->{'tax amount'};
+		    warn "[INFO] non zero value tax amount " . decimalise($row->{'tax amount'}) . " noted, total tax now ", decimalise($counter{'total_tax'}) . "\n" if $verbose;
+		    # These are probably item config errors - e.g. inventory
+		    # set to have VAT when not relevant
+		} else {
+		    warn "[INFO] zero value tax amount noted but ignored\n" if $verbose;
+		} # end if tax amount not zero
+	    } # end tax amount handler
+	    
+	    if ($row->{'tip amount'}) {
+		if ( $row->{'tip amount'} != 0 ) {
+		    $counter{'tips_count'}++;
+		    $counter{'total_tips'} += $row->{'tip amount'};
+		    warn "[INFO] non zero value tip amount " . decimalise($row->{'tip amount'}) . " noted, total tips now " . decimalise($counter{'total_tips'}) . "\n" if $verbose;
+		    # We treat tips as donations and typically just add them in as part of fundraising takings .
+		    # So, we should print a row for OSM to account for the tip, but currently uncertain how that translates to a payout.
+		    # Let's die until we can find out.....
+		    die "$0: Tip received but script cannot handle tips yet!\n";
+		    # 
+		} else {
+		    warn "[INFO] zero value tip amount noted but ignored\n" if $verbose;
+		} # end if tip amount not zero
+	    } # end tip amount handler
+	    
+	    # OSM strips many non-alphanumeric characters from the
+	    # Reference text including ! " £ $ % ^ & * _ + = { } [ ] :
+	    # ; < ' ~ # | \ < >
+
+	    # Comma is default separator in OSM CSV imports
+
+	    # Define a separator string so that we can readily identify text input from terminal
+	    # This can include spaces, alphanumerics and the characters @ ( ) . -
+	    # Modify description to more clearly identify text input from terminal if any;
+
+	    # The first field is the date - OSM requires this:
+	    print "$row->{date},";
+	    # The second field is the "Reference" - it is a free text field in OSM, so we pack it with as much useful data as we can squeeze in.
+	    # (presented here as two print statemts for legibility)
+	    print "$row->{status} transaction $row->{'card type'} $row->{'process as'} $row->{'last 4 digits'} ";
+	    print lc($row->{'payment method'}) . " " . lc($row->{'entry mode'}) . ": $row->{total} $row->{description},";
+	    # the final field is the gross amount:
+	    print "$row->{total}\n";
+	} else {
+	    die "$0: status $row->{status} at row $counter{'rowcount'} is neither Failed, Cancelled nor Successful!\n";
 	}
-    }
-	return $row;
+	
+	
+	} elsif ($row->{'transaction type'} eq "Payout" ) {
+	    $counter{'payout_count'}++;
+	    warn "[INFO] row $counter{'rowcount'} is Payout row number $counter{'payout_count'}\n" if $verbose;
+	    if ($row->{status} eq "Paid") {
+		if ( $row->{payout} ) {
+		    $row->{payout} = $row->{payout} * -1 if ($row->{payout} > 0 );
+		    $counter{'total_payout'} += $row->{payout};
+		    warn "[INFO] Now $counter{'payout_count'} total payouts. Added $row->{payout} to give running total_payout of " . decimalise($counter{'total_payout'}) . "\n" if $verbose;
+		} else {
+		    die "$0: [FATAL] \$row->{payout} not set in payout row $counter{'rowcount'}\n";
+		}
+		# we print the date, an aggregated description for the fee then minus the fee as three comma-separated values for OSM
+		print "$row->{date}, transaction fee against $row->{total} $row->{description}, $row->{fee}\n";
+		# now we print the date, an aggregated descriptor and the net payout
+		print "$row->{'payout date'}, payout $row->{'payout id'} raised $row->{date} ($row->{'total'} minus $row->{fee}) $row->{description}, $row->{payout}\n";	
+		# This is marked as an internal transfer from the SumUp "Bank Account" to the Barclays Current Account in OSM.
+	    } else {
+		die "$0: Unknown status $row->{status} for transaction type $row->{'transaction type'} in row $counter{'rowcount'}\nOnly expect type \"Paid\"\n"; 
+		# ie "$0: Unknown SumUP transaction type $row->{'transaction type'} in row $counter{'$rowcount'}\n";
+	    } # end if Payout Paid
+    } else {
+	die "$0: [FATAL] Row $counter{'rowcount'} transaction type $row->{'transaction type'} is neither Sale nor Payout!\n";
+    } # end row tansaction type 
 }
 
-sub main {
-    my $file = shift @ARGV or die "$0: Need to get CSV file on the command line\n";
-    open(my $data, '<', $file) or die "$0: Could not open '$file for read': $!\n";
+	    ######################################################################
+	    # end if $row->{transaction type'} ....
+	    
+	    # build description and output new row for OSM
+##	    $row->{description} = ". $row->{description}." if $row->{description};
+##		
+##	    # we print the date, then an aggregate of the transaction information as a description, then the amount as three comma-sparated values for OSM. 
+##	    print "$row->{date}, $row->{'card type'} $row->{'process as'} $row->{'last 4 digits'} " . lc($row->{'payment method'}) . " " . lc($row->{'entry mode'}) . "$row->{description}, $row->{total}\n";
+##	    #    $row->{'net sale'} = decimalise($row->{'net sale'}) if $row->{'net sale'}; 
+##	    
+##	} else {
+##	    warn "$0: unknown SumUp transaction status for transaction type $row->{'transaction type'}: $row->{status} in row $counter{'rowcount'}\n";
+##	
+##	} # end if $row->{status} ...
+##	
+	 # end while rows of the input CSV.
 
-    # Build array of known headers in lower case
-    # NB It would help maintenance to put these in alphabetical order 
-    my @known_headers = ('email', 'date', 'transaction id', 'transaction type', 'status', 'card type', 'last 4 digits',
-                         'process as', 'payment method', 'entry mode', 'auth code', 'description', 'total', 'net sale',
-                         'tax amount', 'tip amount', 'fee', 'payout', 'payout date', 'payout id', 'reference');
+
+
+warn "[INFO] all done $counter{'rowcount'} rows\n" if $verbose;
+
+# ============================================================================
+# Final summary (if verbose or report requested )
+# ============================================================================
+
+if ($verbose||$report) {
+    warn "[WARN] $counter{'tips_count'} transactions: total tips of $counter{'total_tips'} included\n" if ( $counter{'total_tips'} > 0 ) ;
+    warn "[WARN] $counter{'tax_count'} unexpected transactions with total tax of $counter{'total_tax'} advised\n" if ( $counter{'total_tax'} > 0 );
+
+    print STDERR "\n[INFO] Summary:\n";
+    for my $key (sort keys %counter) {
+#        printf STDERR "  %-22s %d\n", $key, $counter{$key};
+	my $reportval = $counter{$key};
+	if ( $key =~ /^\s*total/ ) {
+	    $reportval = decimalise($reportval);
+	} 
+	warn "  $key\t\t$reportval\n";
+    }
+}
+
+
+exit;
+
+#======================================================================
+# normalise currency values to two decimal places
+#======================================================================
+sub decimalise {
+    my $value = "@_";
+    my $initial_value=$value;
+    if ($value =~ /^\s*$/) {
+	warn "[INFO] blank value passed to sub decimalise() - returning 0.00\n" if ($verbose > 1);
+	return("0.00");
+	};
+    warn "[INFO] decimalise $value\n" if ($verbose > 1) ;
+    $value =~ s/\s//i; # strip any whitespace
+    die "$0: non-numeric value $value passed to sub decimalise\n" unless ($value =~ m/^-?[\d\.]*$/);
+    # check if value has decimal point or not
+    unless ($value =~ m/^-?\d*\.\d*$/ ) {
+	# if not, then append decimal point and two zeros
+	warn "[INFO] appending trailing decimal and two zeros to $value\n" if ($verbose > 1);
+	$value .= ".00";
+    }
+    # check if decimal has two digits and if only one, append trailing zero
+    unless ($value =~ m/^-?\d*\.\d\d$/ ) {
+	warn "[INFO] appending trailing zero to $value\n" if ($verbose > 1);
+	# if not, then append decimal point and two zeros
+	$value .= "0";
+    }
+    if ($value =~ /\d+\.\d\d\d+/ ) {
+	# we have accumulated more than twodecimal places so round off
+	warn "[INFO] value $value has more than two decimals.\n" if ($verbose > 1);
+	$value = int($value * 10**2 + 0.5) / 10**2 ; # +0.5 is magical sauce to do rounding instead of truncating 
+	warn "[INFO] Rounded to $value\n" if ($verbose > 1); 
+    }
     
-    # Convert the known header array to a hash to validate header row names
-    my %known_headers = map { $_ => 1 } @known_headers;
-
-    if (DEBUG) {
-        warn "debug: \@known_headers is ", scalar @known_headers, "\n";
-        foreach my $headerkey (sort keys %known_headers) {
-            warn "debug: header key $headerkey\n";
-        }
-    }
-    # Establish CSV object; note use of quote_space
-    my $csv = Text::CSV->new({ sep_char => ',', binary => 1, auto_diag => 0, quote_space => 'false' });
-
-    # import header row
-    # Note: We started out using $csv->header ($data, { munge_column_names => sub { ... })
-    # but switched to this to manage Text::CSV INI failure   
-    my $headers = $csv->getline($data);
-    foreach my $header (@$headers) {
-        $header =~ s/^\s*|\s*$//g;  # Trim leading and trailing spaces
-        $header =~ s/\s+/ /g;       # Replace multiple spaces with a single space
-    }
-
-    if (DEBUG) {
-        warn "debug: read headers: ", join(", ", @$headers), "\n";
-    }
-
-    for my $header (@$headers) {
-        if (!defined $header || $header eq '') {
-            die "$0: Header  contains an empty field\n";
-        }
-        if (!$known_headers{lc $header}) {
-            die "$0: Unknown column '$header' in $file\n";
-        }
-    }
-
-    $csv->column_names(map { lc $_ } @$headers);
-
-    # print new header row for OSM
-    print "Date,Reference,Amount\n";
-    my $rowcount = 1;
-    # Loop through rows
-    while (my $row = $csv->getline_hr($data)) {
-        $rowcount++;
-        $row = process_row($row, $rowcount);
-
-        if (defined $row->{status}) {
-	    # zero value transactions such as failed or cancelled ones are ignored by OSM
-            if ($row->{status} =~ /failed|cancelled/i) {
-                warn "Row $rowcount: Skipping zero-value $row->{status} transaction\n" if DEBUG;
-                next;
-            } elsif ($row->{status} =~ /successful/i) {
-                print "$row->{date},\"$row->{'card type'} $row->{'process as'} $row->{'last 4 digits'} " .
-                      lc($row->{'payment method'}) . " " . lc($row->{'entry mode'}) .
-		    " $row->{'description'}\",$row->{'total'}\n";
-
-		warn "$row->{date},\"$row->{'card type'} $row->{'process as'} $row->{'last 4 digits'} " .
-		    lc($row->{'payment method'}) . " " . lc($row->{'entry mode'}) .
-		    " $row->{'description'}\",$row->{'total'}\n" if DEBUG;
-            } elsif ($row->{status} =~ /paid/i) {
-		die "$0: payout $row->{'payout'} plus fee $row->{'fee'} does not equal total $row->{'total'} in row $rowcount!\n" unless ( $row->{'payout'} + $row->{'fee'} == $row->{'total'} ); 
-                print "$row->{date},\"transaction fee against £$row->{'total'} $row->{'description'}\",-$row->{'fee'}\n";
-                warn "$row->{date},\"transaction fee against £$row->{'total'} $row->{'description'}\",-$row->{'fee'}\n" if DEBUG;
-                print "$row->{'payout date'},\"payout $row->{'payout id'} raised $row->{date} (£$row->{'total'} minus £$row->{'fee'}) $row->{'description'}\",-$row->{payout}\n";
-		warn "$row->{'payout date'},\"payout $row->{'payout id'} raised $row->{date} (£$row->{'total'} minus £$row->{'fee'}) $row->{'description'}\",-$row->{payout}\n" if DEBUG;
-            } else {
-                die "$0: Unknown status $row->{status} at row $rowcount\n";
-            }
-        } else {
-            warn "Row $rowcount: 'status' not defined\n" if DEBUG;
-        }
-    }
-
-    warn "Processing completed: $rowcount rows\n" if DEBUG;
+    warn "[INFO] decimalised $initial_value to $value\n" if (($initial_value ne $value) && ($verbose > 1));
+    return("$value");
 }
 
-main();
+exit 0;
 
+__END__
+
+=head1 NAME
+
+sumup-to-osm.pl - Convert SumUp CSV transaction report for import to
+Online Scout Manager (OSM) Accountancy Tools
+
+=head1 SYNOPSIS
+
+  perl sumup-to-osm sumup-transaction-report-filename.csv [--report] [--verbose] [--help] [--version]
+
+  A script to covert SumUp transaction reports for import into an OSM
+  Accountancy Tools Bank Account.
+
+=head1 DESCRIPTION
+
+This script parses transaction data from a SumUp CSV transaction log
+file and outputs a simplified CSV file containing basic essential data
+(date,description,amount) in a format that can be parsed by OSM
+Accountancy Tools.
+
+To do this, first check the date of the last transaction uploaded to
+OSM so you know the required start date for the report.
+
+Log into the SumUP managerial interface on a desktop browser.
+
+From the Home menu, select overview and click "Download
+Centre".
+
+Select "Transactions" and choose the correct date range, typically from
+the day after the last date in OSM to the present.
+
+Choose CSV for the output format and don't use the "old format" (it
+will work but contains less information).
+
+Click "Export". This will save a file with the name in the format
+<start date>-<end date>-<client ID>-transactions-report.csv with dates
+in YYYYMMDD format. This is the file that this script will process.
+
+Save the file to your finance data store - SumUp does not produce
+statements as such so this needs to be retained as evidence for your
+end of year accounts, though you may prefer to use a separate PDF
+report for that.
+
+=head1 OPTIONS
+
+=over 4
+
+=item <filename>
+
+The path to the SumUp transaction report CSV input file (required).
+This can be provided as an argument or piped via STDIN.
+
+=item B<--report>
+
+Prints a dignostic summary report at the end of processing. The report is printed to STDERR.
+
+=item B<--verbose> I<filename>
+
+Prints descriptive messages whilst processing and the summary report when complete. All output to STDERR.
+
+=item B<--version>
+
+Show version number (3.0) and exit.
+
+=item B<--help>
+
+Show usage info. Add --verbose for full documentation.
+
+=back
+
+=head1 AUTHOR
+
+Ken Bailey
+
+=cut

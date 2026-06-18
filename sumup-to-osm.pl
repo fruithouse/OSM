@@ -33,7 +33,7 @@ BEGIN {
 #    } or die "$0: Missing required module JSON. Try: cpan JSON\n";
 } # end BEGIN!
 
-my $version='3.0';
+my $version='4.0.0-dev';
 my ($verbose,$debug,$report,$help);
 
 GetOptions(
@@ -271,7 +271,7 @@ while (my $row = $csv->getline_hr ($data)) {
 		# This is marked as an internal transfer from the SumUp "Bank Account" to the Barclays Current Account in OSM.
 	    } else {
 		die "$0: Unknown status $row->{status} for transaction type $row->{'transaction type'} in row $counter{'rowcount'}\nOnly expect type \"Paid\"\n"; 
-		# ie "$0: Unknown SumUP transaction type $row->{'transaction type'} in row $counter{'$rowcount'}\n";
+		# ie "$0: Unknown SumUp transaction type $row->{'transaction type'} in row $counter{'$rowcount'}\n";
 	    } # end if Payout Paid
     } else {
 	die "$0: [FATAL] Row $counter{'rowcount'} transaction type $row->{'transaction type'} is neither Sale nor Payout!\n";
@@ -383,25 +383,32 @@ Accountancy Tools.
 To do this, first check the date of the last transaction uploaded to
 OSM so you know the required start date for the report.
 
-Log into the SumUP managerial interface on a desktop browser.
+Log into the SumUp managerial interface on a desktop browser.
 
-From the Home menu, select overview and click "Download
-Centre".
+From the three bars in the top left, select and expand the Home menu, select overview and click "Download Centre". This takes you to https://me.sumup.com/en-gb/reports/download-center. 
 
 Select "Transactions" and choose the correct date range, typically from
-the day after the last date in OSM to the present.
+the day after the last date in the OSM SumUp transactions to the present.
 
-Choose CSV for the output format and don't use the "old format" (it
-will work but contains less information).
+Choose CSV for the output format, do not add any filters, and don't use the "old format" (it will work but contains less information).
 
-Click "Export". This will save a file with the name in the format
+Click "Export file". This will save a file with the name in the format
 <start date>-<end date>-<client ID>-transactions-report.csv with dates
 in YYYYMMDD format. This is the file that this script will process.
 
 Save the file to your finance data store - SumUp does not produce
 statements as such so this needs to be retained as evidence for your
 end of year accounts, though you may prefer to use a separate PDF
-report for that.
+report for that. SumUp also email a report PDF for every payout, so
+retain those for your end of year accounts too.
+
+The daily Payout Report is useful for checking consolidated payout
+totals against the bank statement, but the Transaction Report CSV
+remains the preferred input because it contains the detail needed to
+produce separate OSM receipt and fee rows. Prior to 2026, the payout
+transaction reference in the CSV matched the payout reference in the
+payout bank transfer description, but now they differ, so any
+reconciliation now has to depend on just date and amount.
 
 =head1 OPTIONS
 

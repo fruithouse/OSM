@@ -34,13 +34,15 @@ BEGIN {
 } # end BEGIN!
 
 my $version='4.0.0-dev';
-my ($verbose,$debug,$report,$help);
+my ($verbose,$debug,$report,$help,$consolidate_payouts,$sort_mode);    
 
 GetOptions(
     'verbose+'  => \$verbose, # 0, 1 or 2
     'debug+'  => \$debug, # 0, 1
     'report'  =>  \$report,
-    'help|h|?'    => \$help,       # sub { pod2usage(-verbose => ($verbose ? 2 : 1)) },
+    'consolidate-payouts' => \$consolidate_payouts,
+    'sort=s'              => \$sort_mode,
+    'help|h|?'    => \$help,
     'version'   => sub { print "$0 $version\n"; exit(0) },
     ) or pod2usage(1);
 
@@ -50,6 +52,13 @@ if ($help) {
     } else {
         pod2usage(-msg => "\n$0: use --help --verbose for more detail.\n", -verbose => 1, -exitval => 1);
     }
+}
+
+$consolidate_payouts ||= 0;
+$sort_mode ||= 'chronological';
+
+unless ($sort_mode =~ /^(chronological|grouped)$/) {
+    die "$0: invalid --sort '$sort_mode' (expected chronological or grouped)\n";
 }
 
 my $file = $ARGV[0] or die "Usage $0 <sumup_transactions_filename.csv> (See $0 --help)\n";
@@ -368,7 +377,7 @@ Online Scout Manager (OSM) Accountancy Tools
 
 =head1 SYNOPSIS
 
-  perl sumup-to-osm sumup-transaction-report-filename.csv [--report] [--verbose] [--help] [--version]
+  perl sumup-to-osm sumup-transaction-report-filename.csv [--report] [--verbose] [--help] [--version] [--consolidate-payouts] [--sort chronological|grouped]
 
   A script to covert SumUp transaction reports for import into an OSM
   Accountancy Tools Bank Account.
@@ -418,6 +427,15 @@ reconciliation now has to depend on just date and amount.
 
 The path to the SumUp transaction report CSV input file (required).
 This can be provided as an argument or piped via STDIN.
+
+=item B<--consolidate-payouts>
+
+Accepted for v4 development. Will consolidate payout rows by SumUp Payout ID.
+
+=item B<--sort> B<chronological|grouped>
+
+Accepted for v4 development. C<chronological> preserves the current output order.
+C<grouped> will output payouts, fees, then receipts.
 
 =item B<--report>
 

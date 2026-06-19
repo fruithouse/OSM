@@ -101,6 +101,11 @@ my %counter = (
     zerovalue_count => 0,
     );
 
+# Internal output queue. Rows are collected first and printed later.
+# This preserves the existing default output order while giving v4 a safe
+# place to add payout consolidation and grouped output ordering.
+my @output_rows;
+
 # hash to store, then count, card types 
 # my $cardtype; # not yet used but its VISA, MASTERCARD or AMEX.
 
@@ -146,8 +151,8 @@ $csv->header ($data, { munge_column_names => sub {
 	      }
     );
 
-# print new header row for OSM
-print "Date,Reference,Amount\n";
+# The OSM CSV header is printed later by print_output_rows(), after all
+# output rows have been queued.
 
 $counter{'rowcount'}=1; # start at 1 because we have read the header 
 # Loop through rows
@@ -249,14 +254,12 @@ while (my $row = $csv->getline_hr ($data)) {
 	    # This can include spaces, alphanumerics and the characters @ ( ) . -
 	    # Modify description to more clearly identify text input from terminal if any;
 
-	    # The first field is the date - OSM requires this:
-	    print "$row->{date},";
 	    # The second field is the "Reference" - it is a free text field in OSM, so we pack it with as much useful data as we can squeeze in.
-	    # (presented here as two print statemts for legibility)
-	    print "$row->{status} transaction $row->{'card type'} $row->{'process as'} $row->{'last 4 digits'} ";
-	    print lc($row->{'payment method'}) . " " . lc($row->{'entry mode'}) . ": $row->{total} $row->{description},";
-	    # the final field is the gross amount:
-	    print "$row->{total}\n";
+	    my $reference = "$row->{status} transaction $row->{'card type'} $row->{'process as'} $row->{'last 4 digits'} "
+	                  . lc($row->{'payment method'}) . " " . lc($row->{'entry mode'})
+	                  . ": $row->{total} $row->{description}";
+
+	    queue_output_row('receipt', $row->{date}, $reference, $row->{total});
 	} else {
 	    die "$0: status $row->{status} at row $counter{'rowcount'} is neither Failed, Cancelled nor Successful!\n";
 	}
@@ -273,10 +276,19 @@ while (my $row = $csv->getline_hr ($data)) {
 		} else {
 		    die "$0: [FATAL] \$row->{payout} not set in payout row $counter{'rowcount'}\n";
 		}
-		# we print the date, an aggregated description for the fee then minus the fee as three comma-separated values for OSM
-		print "$row->{date}, transaction fee against $row->{total} $row->{description}, $row->{fee}\n";
-		# now we print the date, an aggregated descriptor and the net payout
-		print "$row->{'payout date'}, payout $row->{'payout id'} raised $row->{date} ($row->{'total'} minus $row->{fee}) $row->{description}, $row->{payout}\n";	
+		# Queue the SumUp fee as a separate output row for OSM.
+		queue_output_row('fee', $row->{date},
+		    " transaction fee against $row->{total} $row->{description}",
+		    $row->{fee}
+		);
+
+		# Queue the payout as an internal transfer row for OSM.
+		# In v4 this row may be suppressed and replaced by a consolidated
+		# payout batch row when --consolidate-payouts is enabled.
+		queue_output_row('payout', $row->{'payout date'},
+		    " payout $row->{'payout id'} raised $row->{date} ($row->{'total'} minus $row->{fee}) $row->{description}",
+		    $row->{payout}
+		);
 		# This is marked as an internal transfer from the SumUp "Bank Account" to the Barclays Current Account in OSM.
 	    } else {
 		die "$0: Unknown status $row->{status} for transaction type $row->{'transaction type'} in row $counter{'rowcount'}\nOnly expect type \"Paid\"\n"; 
@@ -305,6 +317,8 @@ while (my $row = $csv->getline_hr ($data)) {
 	 # end while rows of the input CSV.
 
 
+# Print CSV output after all input rows have been processed.
+print_output_rows();
 
 warn "[INFO] all done $counter{'rowcount'} rows\n" if $verbose;
 
@@ -329,6 +343,31 @@ if ($verbose||$report) {
 
 
 exit;
+
+#======================================================================
+# queue an output row for later CSV printing
+#======================================================================
+sub queue_output_row {
+    my ($type, $date, $reference, $amount) = @_;
+
+    push @output_rows, {
+	type      => $type,
+	date      => $date,
+	reference => $reference,
+	amount    => $amount,
+    };
+}
+
+#======================================================================
+# print queued output rows
+#======================================================================
+sub print_output_rows {
+    print "Date,Reference,Amount\n";
+
+    for my $out (@output_rows) {
+	print "$out->{date},$out->{reference},$out->{amount}\n";
+    }
+}
 
 #======================================================================
 # normalise currency values to two decimal places

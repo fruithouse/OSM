@@ -309,7 +309,7 @@ $payout_batches{$pid}{first_date} = $row->{date}
 		# Queue the payout as an internal transfer row for OSM.
 		# In v4 this row may be suppressed and replaced by a consolidated
 		# payout batch row when --consolidate-payouts is enabled.
-### was: 
+### was:
 ##		queue_output_row('payout', $row->{'payout date'},
 ##				 " payout $row->{'payout id'} raised $row->{date} ($row->{'total'} minus $row->{fee}) $row->{description}",
 ##		    $row->{payout}
@@ -322,7 +322,7 @@ $payout_batches{$pid}{first_date} = $row->{date}
 				     $row->{payout}
 			);
 		}
-		
+
 
 
 		# This is marked as an internal transfer from the SumUp "Bank Account" to the Barclays Current Account in OSM.

@@ -104,6 +104,7 @@ my %counter = (
     total_sales => 0,
     payout_count => 0,
     consolidated_payout_count => 0,
+    scheduled_payout_count => 0,
     total_payout => 0,
     zerovalue_count => 0,
     );

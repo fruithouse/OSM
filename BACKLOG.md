@@ -149,6 +149,26 @@ Investigate:
 * Detection of missing or duplicated payout batches.
 * Optional reconciliation summaries.
 
+## Hardening
+
+Current behaviour:
+```
+Unpredictable failure in case of csv format changes or file corruption
+```
+
+Future behaviour:
+```
+* add --strict to include checks, for example
+  gross - fee = payout
+  payout id present on payout rows
+  payout date present
+  transaction type is Sale or Payout
+  Sale status is Successful/Failed/Cancelled
+  Payout status is Paid
+  dates match expected format
+  currency values are numeric
+```
+
 ## OSM Feature Request
 
 Long-term objective:

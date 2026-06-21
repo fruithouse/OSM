@@ -97,6 +97,7 @@ my %counter = (
     total_fees => 0,
     total_sales => 0,
     payout_count => 0,
+    consolidated_payout_count => 0,
     total_payout => 0,
     zerovalue_count => 0,
     );
@@ -308,10 +309,22 @@ $payout_batches{$pid}{first_date} = $row->{date}
 		# Queue the payout as an internal transfer row for OSM.
 		# In v4 this row may be suppressed and replaced by a consolidated
 		# payout batch row when --consolidate-payouts is enabled.
-		queue_output_row('payout', $row->{'payout date'},
-				 " payout $row->{'payout id'} raised $row->{date} ($row->{'total'} minus $row->{fee}) $row->{description}",
-		    $row->{payout}
-		);
+### was: 
+##		queue_output_row('payout', $row->{'payout date'},
+##				 " payout $row->{'payout id'} raised $row->{date} ($row->{'total'} minus $row->{fee}) $row->{description}",
+##		    $row->{payout}
+##		);
+		if ($consolidate_payouts) {
+		    warn "[DEBUG] suppressing payout row for batch $pid amount $row->{payout}\n" if $debug;
+		} else {
+		    queue_output_row('payout', $row->{'payout date'},
+				     " payout $row->{'payout id'} raised $row->{date} ($row->{'total'} minus $row->{fee}) $row->{description}",
+				     $row->{payout}
+			);
+		}
+		
+
+
 		# This is marked as an internal transfer from the SumUp "Bank Account" to the Barclays Current Account in OSM.
 	    } else {
 		die "$0: Unknown status $row->{status} for transaction type $row->{'transaction type'} in row $counter{'rowcount'}\nOnly expect type \"Paid\"\n";
@@ -339,6 +352,19 @@ $payout_batches{$pid}{first_date} = $row->{date}
 ##
 	 # end while rows of the input CSV.
 
+if ($consolidate_payouts) {
+    for my $pid (sort keys %payout_batches) {
+        my $b = $payout_batches{$pid};
+
+        my $reference = "$b->{count} sales from $b->{first_date} to $b->{last_date} payout $pid";
+
+        queue_output_row('payout', $b->{payout_date}, $reference, decimalise($b->{net_total}));
+        $counter{'consolidated_payout_count'}++;
+
+        warn "[DEBUG] consolidated payout batch $pid as $b->{payout_date},$reference,"
+           . decimalise($b->{net_total}) . "\n" if $debug;
+    }
+}
 
 # Print CSV output after all input rows have been processed.
 print_output_rows();

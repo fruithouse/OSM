@@ -34,7 +34,7 @@ BEGIN {
 } # end BEGIN!
 
 my $version='4.0.0-dev';
-my ($verbose,$debug,$report,$help,$consolidate_payouts,$sort_mode);    
+my ($verbose,$debug,$report,$help,$consolidate_payouts,$sort_mode);
 
 GetOptions(
     'verbose+'  => \$verbose, # 0, 1 or 2
@@ -94,7 +94,7 @@ my %counter = (
     tips_count => 0,
     total_tips => 0,
     fees_count => 0,
-    total_fees => 0, 
+    total_fees => 0,
     total_sales => 0,
     payout_count => 0,
     total_payout => 0,
@@ -108,7 +108,7 @@ my %payout_batches;
 # place to add payout consolidation and grouped output ordering.
 my @output_rows;
 
-# hash to store, then count, card types 
+# hash to store, then count, card types
 # my $cardtype; # not yet used but its VISA, MASTERCARD or AMEX.
 
 open(my $data, '<', $file) or die "Could not open '$file' $!\n";
@@ -156,13 +156,13 @@ $csv->header ($data, { munge_column_names => sub {
 # The OSM CSV header is printed later by print_output_rows(), after all
 # output rows have been queued.
 
-$counter{'rowcount'}=1; # start at 1 because we have read the header 
+$counter{'rowcount'}=1; # start at 1 because we have read the header
 # Loop through rows
 while (my $row = $csv->getline_hr ($data)) {
     $counter{'rowcount'}++;
     warn "[INFO] row count is $counter{'rowcount'}\n" if $verbose;
     # normalise any currency fields via sub &decimalise to ensure values contain two trailing decimals even if zero.
-    $row->{total} = decimalise($row->{total}) if $row->{total}; 
+    $row->{total} = decimalise($row->{total}) if $row->{total};
     $row->{fee} = decimalise($row->{fee}) * -1 if $row->{fee};
     $row->{payout} = decimalise($row->{payout}) if $row->{payout};
     $row->{'tax amount'} = decimalise($row->{'tax amount'}) if $row->{'tax amount'};
@@ -172,53 +172,53 @@ while (my $row = $csv->getline_hr ($data)) {
     if ($row->{'transaction type'} eq "Sale") {
 	print "\n[INFO] processing row $counter{'rowcount'}: $row->{'transaction type'} $row->{status}\n" if ($verbose > 1);
      	# status is either "Successful", "Failed" or "Cancelled"
-	
+
 	# Lets handle the Failed cases first
 	if ($row->{status} =~ m/failed|cancelled/i ) {
-	    
+
 	    # Although we could retain failed and cancelled transactions
 	    # as zero value rows for ease of reference, OSM does not
 	    # import zero-value transactions, so its pointless trying to
 	    # keep them. In case of dispute, refer to SumUp's transaction
 	    # record directly.
-	    
-	   
+
+
 	    $counter{'zerovalue_count'}++;
 	    warn "[INFO] skipping zero-value $row->{status} transaction\n" if $verbose;
 	    next;
-	    
+
 	} elsif  ($row->{status} eq "Successful") {
-	    
+
 	    warn "[INFO] Processing row $counter{'rowcount'} for $row->{'status'} transaction\n" if $debug;
 	    warn "[INFO] transaction type is $row->{'transaction type'} \n" if $debug;
-	    warn "[INFO] status is $row->{status}\n" if $debug; 
-	    
+	    warn "[INFO] status is $row->{status}\n" if $debug;
+
 	    # reduce last 4 digits from "**** **** **** 1234" to just "1234"
 	    $row->{'last 4 digits'} =~ s/\*//g;
-	    $row->{'last 4 digits'} =~ s/\s*//g;	
-	    
+	    $row->{'last 4 digits'} =~ s/\s*//g;
+
 	    if ( $row->{total} ) {
 		$counter{'sales_count'}++;
 		$counter{'total_sales'} += $row->{total};
 		warn "[INFO] $counter{'sales_count'} sales with running total_sales of " . decimalise($counter{'total_sales'}) . "\n" if $verbose;
 	    }
-	    
+
 	    if ( $row->{fee} ) {
 		$counter{'fees_count'}++;
 		$counter{'total_fees'} -= $row->{fee};
 		warn "[INFO] $counter{'fees_count'} fees with $row->{fee} added to running total_fees of " . decimalise($counter{'total_fees'}) . "\n" if $verbose;
 	    }
-	    
+
 	    # NB Net sale, Tax amount and Tip amount are not expected to
 	    # be used. Net sale is factored-in but we keep track of these
 	    # and throw an error after all is processed.  Tax amount is
 	    # advisory, not deductible at source, so can be ignored. If it
 	    # appears it probably means the card reader environment has
 	    # default values of 20% VAT.
-	    
+
 	    # Tips, should there ever be any, are income to be treated as
 	    # donations.
-	    
+
 	    if ($row->{'tax amount'}) {
 		if ( $row->{'tax amount'} != 0 ) {
 		    $counter{'tax_count'}++; # only count positive tax amount rows
@@ -230,7 +230,7 @@ while (my $row = $csv->getline_hr ($data)) {
 		    warn "[INFO] zero value tax amount noted but ignored\n" if $verbose;
 		} # end if tax amount not zero
 	    } # end tax amount handler
-	    
+
 	    if ($row->{'tip amount'}) {
 		if ( $row->{'tip amount'} != 0 ) {
 		    $counter{'tips_count'}++;
@@ -240,12 +240,12 @@ while (my $row = $csv->getline_hr ($data)) {
 		    # So, we should print a row for OSM to account for the tip, but currently uncertain how that translates to a payout.
 		    # Let's die until we can find out.....
 		    die "$0: Tip received but script cannot handle tips yet!\n";
-		    # 
+		    #
 		} else {
 		    warn "[INFO] zero value tip amount noted but ignored\n" if $verbose;
 		} # end if tip amount not zero
 	    } # end tip amount handler
-	    
+
 	    # OSM strips many non-alphanumeric characters from the
 	    # Reference text including ! " £ $ % ^ & * _ + = { } [ ] :
 	    # ; < ' ~ # | \ < >
@@ -265,8 +265,8 @@ while (my $row = $csv->getline_hr ($data)) {
 	} else {
 	    die "$0: status $row->{status} at row $counter{'rowcount'} is neither Failed, Cancelled nor Successful!\n";
 	}
-	
-	
+
+
 	} elsif ($row->{'transaction type'} eq "Payout" ) {
 	    $counter{'payout_count'}++;
 	    warn "[INFO] row $counter{'rowcount'} is Payout row number $counter{'payout_count'}\n" if $verbose;
@@ -280,31 +280,31 @@ while (my $row = $csv->getline_hr ($data)) {
 		}
 		#
 		my $pid = $row->{'payout id'};
-		
+
 		$payout_batches{$pid}{count}++;
-		
+
 		$payout_batches{$pid}{gross_total} += $row->{total};
 		$payout_batches{$pid}{fee_total}   += $row->{fee};
 		$payout_batches{$pid}{net_total}   += $row->{payout};
-		
+
 #		$payout_batches{$pid}{first_date} //= $row->{date};
 #		$payout_batches{$pid}{last_date}   = $row->{date};
 $payout_batches{$pid}{first_date} = $row->{date}
 		if !defined $payout_batches{$pid}{first_date}
 		|| $row->{date} lt $payout_batches{$pid}{first_date};
-		
+
 		$payout_batches{$pid}{last_date} = $row->{date}
 		if !defined $payout_batches{$pid}{last_date}
-		|| $row->{date} gt $payout_batches{$pid}{last_date};		
+		|| $row->{date} gt $payout_batches{$pid}{last_date};
 		$payout_batches{$pid}{payout_date} = $row->{'payout date'};
 		#
-		
+
 		# Queue the SumUp fee as a separate output row for OSM.
 		queue_output_row('fee', $row->{date},
 				 " transaction fee against $row->{total} $row->{description}",
 				 $row->{fee}
 		    );
-		
+
 		# Queue the payout as an internal transfer row for OSM.
 		# In v4 this row may be suppressed and replaced by a consolidated
 		# payout batch row when --consolidate-payouts is enabled.
@@ -314,29 +314,29 @@ $payout_batches{$pid}{first_date} = $row->{date}
 		);
 		# This is marked as an internal transfer from the SumUp "Bank Account" to the Barclays Current Account in OSM.
 	    } else {
-		die "$0: Unknown status $row->{status} for transaction type $row->{'transaction type'} in row $counter{'rowcount'}\nOnly expect type \"Paid\"\n"; 
+		die "$0: Unknown status $row->{status} for transaction type $row->{'transaction type'} in row $counter{'rowcount'}\nOnly expect type \"Paid\"\n";
 		# ie "$0: Unknown SumUp transaction type $row->{'transaction type'} in row $counter{'$rowcount'}\n";
 	    } # end if Payout Paid
     } else {
 	die "$0: [FATAL] Row $counter{'rowcount'} transaction type $row->{'transaction type'} is neither Sale nor Payout!\n";
-    } # end row tansaction type 
+    } # end row tansaction type
 }
 
 	    ######################################################################
 	    # end if $row->{transaction type'} ....
-	    
+
 	    # build description and output new row for OSM
 ##	    $row->{description} = ". $row->{description}." if $row->{description};
-##		
-##	    # we print the date, then an aggregate of the transaction information as a description, then the amount as three comma-sparated values for OSM. 
+##
+##	    # we print the date, then an aggregate of the transaction information as a description, then the amount as three comma-sparated values for OSM.
 ##	    print "$row->{date}, $row->{'card type'} $row->{'process as'} $row->{'last 4 digits'} " . lc($row->{'payment method'}) . " " . lc($row->{'entry mode'}) . "$row->{description}, $row->{total}\n";
-##	    #    $row->{'net sale'} = decimalise($row->{'net sale'}) if $row->{'net sale'}; 
-##	    
+##	    #    $row->{'net sale'} = decimalise($row->{'net sale'}) if $row->{'net sale'};
+##
 ##	} else {
 ##	    warn "$0: unknown SumUp transaction status for transaction type $row->{'transaction type'}: $row->{status} in row $counter{'rowcount'}\n";
-##	
+##
 ##	} # end if $row->{status} ...
-##	
+##
 	 # end while rows of the input CSV.
 
 
@@ -352,10 +352,10 @@ warn "[INFO] all done $counter{'rowcount'} rows\n" if $verbose;
 if ($verbose||$report) {
     warn "[WARN] $counter{'tips_count'} transactions: total tips of $counter{'total_tips'} included\n" if ( $counter{'total_tips'} > 0 ) ;
     warn "[WARN] $counter{'tax_count'} unexpected transactions with total tax of $counter{'total_tax'} advised\n" if ( $counter{'total_tax'} > 0 );
-    
+
     if ($report) {
 	warn "\n[INFO] Payout batches:\n";
-	
+
 #	for my $pid (sort keys %payout_batches) {
 #	    warn "  $pid: "
 #		. $payout_batches{$pid}{count}
@@ -365,7 +365,7 @@ if ($verbose||$report) {
 	#	}
 	for my $pid (sort keys %payout_batches) {
 	    my $b = $payout_batches{$pid};
-	    
+
 	    warn "  $b->{count} sales from "
 		. "$b->{first_date} to $b->{last_date} "
 		. "payout $pid paid $b->{payout_date} "
@@ -373,14 +373,14 @@ if ($verbose||$report) {
 		. "\n";
 	}
     }
-    
+
     print STDERR "\n[INFO] Summary:\n";
     for my $key (sort keys %counter) {
 #        printf STDERR "  %-22s %d\n", $key, $counter{$key};
 	my $reportval = $counter{$key};
 	if ( $key =~ /^\s*total/ ) {
 	    $reportval = decimalise($reportval);
-	} 
+	}
 	warn "  $key\t\t$reportval\n";
     }
 }
@@ -441,10 +441,10 @@ sub decimalise {
     if ($value =~ /\d+\.\d\d\d+/ ) {
 	# we have accumulated more than twodecimal places so round off
 	warn "[INFO] value $value has more than two decimals.\n" if ($verbose > 1);
-	$value = int($value * 10**2 + 0.5) / 10**2 ; # +0.5 is magical sauce to do rounding instead of truncating 
-	warn "[INFO] Rounded to $value\n" if ($verbose > 1); 
+	$value = int($value * 10**2 + 0.5) / 10**2 ; # +0.5 is magical sauce to do rounding instead of truncating
+	warn "[INFO] Rounded to $value\n" if ($verbose > 1);
     }
-    
+
     warn "[INFO] decimalised $initial_value to $value\n" if (($initial_value ne $value) && ($verbose > 1));
     return("$value");
 }
@@ -477,7 +477,7 @@ OSM so you know the required start date for the report.
 
 Log into the SumUp managerial interface on a desktop browser.
 
-From the three bars in the top left, select and expand the Home menu, select overview and click "Download Centre". This takes you to https://me.sumup.com/en-gb/reports/download-center. 
+From the three bars in the top left, select and expand the Home menu, select overview and click "Download Centre". This takes you to https://me.sumup.com/en-gb/reports/download-center.
 
 Select "Transactions" and choose the correct date range, typically from
 the day after the last date in the OSM SumUp transactions to the present.

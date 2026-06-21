@@ -101,6 +101,8 @@ my %counter = (
     zerovalue_count => 0,
     );
 
+my %payout_batches;
+
 # Internal output queue. Rows are collected first and printed later.
 # This preserves the existing default output order while giving v4 a safe
 # place to add payout consolidation and grouped output ordering.
@@ -276,17 +278,38 @@ while (my $row = $csv->getline_hr ($data)) {
 		} else {
 		    die "$0: [FATAL] \$row->{payout} not set in payout row $counter{'rowcount'}\n";
 		}
+		#
+		my $pid = $row->{'payout id'};
+		
+		$payout_batches{$pid}{count}++;
+		
+		$payout_batches{$pid}{gross_total} += $row->{total};
+		$payout_batches{$pid}{fee_total}   += $row->{fee};
+		$payout_batches{$pid}{net_total}   += $row->{payout};
+		
+#		$payout_batches{$pid}{first_date} //= $row->{date};
+#		$payout_batches{$pid}{last_date}   = $row->{date};
+$payout_batches{$pid}{first_date} = $row->{date}
+		if !defined $payout_batches{$pid}{first_date}
+		|| $row->{date} lt $payout_batches{$pid}{first_date};
+		
+		$payout_batches{$pid}{last_date} = $row->{date}
+		if !defined $payout_batches{$pid}{last_date}
+		|| $row->{date} gt $payout_batches{$pid}{last_date};		
+		$payout_batches{$pid}{payout_date} = $row->{'payout date'};
+		#
+		
 		# Queue the SumUp fee as a separate output row for OSM.
 		queue_output_row('fee', $row->{date},
-		    " transaction fee against $row->{total} $row->{description}",
-		    $row->{fee}
-		);
-
+				 " transaction fee against $row->{total} $row->{description}",
+				 $row->{fee}
+		    );
+		
 		# Queue the payout as an internal transfer row for OSM.
 		# In v4 this row may be suppressed and replaced by a consolidated
 		# payout batch row when --consolidate-payouts is enabled.
 		queue_output_row('payout', $row->{'payout date'},
-		    " payout $row->{'payout id'} raised $row->{date} ($row->{'total'} minus $row->{fee}) $row->{description}",
+				 " payout $row->{'payout id'} raised $row->{date} ($row->{'total'} minus $row->{fee}) $row->{description}",
 		    $row->{payout}
 		);
 		# This is marked as an internal transfer from the SumUp "Bank Account" to the Barclays Current Account in OSM.
@@ -329,7 +352,28 @@ warn "[INFO] all done $counter{'rowcount'} rows\n" if $verbose;
 if ($verbose||$report) {
     warn "[WARN] $counter{'tips_count'} transactions: total tips of $counter{'total_tips'} included\n" if ( $counter{'total_tips'} > 0 ) ;
     warn "[WARN] $counter{'tax_count'} unexpected transactions with total tax of $counter{'total_tax'} advised\n" if ( $counter{'total_tax'} > 0 );
-
+    
+    if ($report) {
+	warn "\n[INFO] Payout batches:\n";
+	
+#	for my $pid (sort keys %payout_batches) {
+#	    warn "  $pid: "
+#		. $payout_batches{$pid}{count}
+#	    . " sales, net "
+#		. decimalise($payout_batches{$pid}{net_total})
+#		. "\n";
+	#	}
+	for my $pid (sort keys %payout_batches) {
+	    my $b = $payout_batches{$pid};
+	    
+	    warn "  $b->{count} sales from "
+		. "$b->{first_date} to $b->{last_date} "
+		. "payout $pid paid $b->{payout_date} "
+		. "net " . decimalise($b->{net_total})
+		. "\n";
+	}
+    }
+    
     print STDERR "\n[INFO] Summary:\n";
     for my $key (sort keys %counter) {
 #        printf STDERR "  %-22s %d\n", $key, $counter{$key};

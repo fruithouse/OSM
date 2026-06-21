@@ -274,9 +274,10 @@ while (my $row = $csv->getline_hr ($data)) {
 
 	    if ($row->{status} eq "Scheduled") {
 		$counter{'scheduled_payout_count'}++;
-		warn "[INFO] skipping scheduled payout row $counter{'rowcount'} "
-		    . "payout_id=$row->{'payout id'} payout_date=$row->{'payout date'}\n"
-		    if $verbose || $report;
+		warn "[DEBUG] skipping scheduled payout row $counter{'rowcount'} "
+		    . "amount=$row->{payout} "
+		    . "date=$row->{date}\n"
+		    if $debug;
 		next;
 	    }
 
@@ -385,8 +386,8 @@ warn "[INFO] all done $counter{'rowcount'} rows\n" if $verbose;
 # ============================================================================
 
 if ($verbose||$report) {
-    warn "[WARN] $counter{'tips_count'} transactions: total tips of $counter{'total_tips'} included\n" if ( $counter{'total_tips'} > 0 ) ;
-    warn "[WARN] $counter{'tax_count'} unexpected transactions with total tax of $counter{'total_tax'} advised\n" if ( $counter{'total_tax'} > 0 );
+    warn "[WARNING] $counter{'tips_count'} transactions: total tips of $counter{'total_tips'} included\n" if ( $counter{'total_tips'} > 0 ) ;
+    warn "[WARNING] $counter{'tax_count'} unexpected transactions with total tax of $counter{'total_tax'} advised\n" if ( $counter{'total_tax'} > 0 );
 
     if ($report) {
 	warn "\n[INFO] Payout batches:\n";
@@ -418,6 +419,12 @@ if ($verbose||$report) {
 	}
 	warn "  $key\t\t$reportval\n";
     }
+
+    warn "[WARNING] $counter{'scheduled_payout_count'} scheduled payout rows skipped. "
+	. "Re-export after the relevant SumUp payout date. "
+	. "SumUp payout frequency may be daily, weekly, or monthly.\n"
+	if $counter{'scheduled_payout_count'} > 0;
+
 }
 
 

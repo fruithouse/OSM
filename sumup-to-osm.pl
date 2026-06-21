@@ -462,8 +462,22 @@ sub queue_output_row {
 sub print_output_rows {
     print "Date,Reference,Amount\n";
 
-    for my $out (@output_rows) {
-	print "$out->{date},$out->{reference},$out->{amount}\n";
+#    for my $out (@output_rows) {
+#	print "$out->{date},$out->{reference},$out->{amount}\n";
+    #    }
+    
+    my @rows_to_print;
+    
+    if ($sort_mode eq 'grouped') {
+        for my $wanted_type (qw(payout fee receipt)) {
+            push @rows_to_print, grep { $_->{type} eq $wanted_type } @output_rows;
+        }
+    } else {
+        @rows_to_print = @output_rows;
+    }
+
+    for my $out (@rows_to_print) {
+        print "$out->{date},$out->{reference},$out->{amount}\n";
     }
 }
 

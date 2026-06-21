@@ -279,7 +279,7 @@ while (my $row = $csv->getline_hr ($data)) {
 		    if $verbose || $report;
 		next;
 	    }
-	    
+
 	    if ($row->{status} eq "Paid") {
 		if ( $row->{payout} ) {
 		    $row->{payout} = $row->{payout} * -1 if ($row->{payout} > 0 );

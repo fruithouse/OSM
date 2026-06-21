@@ -271,6 +271,15 @@ while (my $row = $csv->getline_hr ($data)) {
 	} elsif ($row->{'transaction type'} eq "Payout" ) {
 	    $counter{'payout_count'}++;
 	    warn "[INFO] row $counter{'rowcount'} is Payout row number $counter{'payout_count'}\n" if $verbose;
+
+	    if ($row->{status} eq "Scheduled") {
+		$counter{'scheduled_payout_count'}++;
+		warn "[INFO] skipping scheduled payout row $counter{'rowcount'} "
+		    . "payout_id=$row->{'payout id'} payout_date=$row->{'payout date'}\n"
+		    if $verbose || $report;
+		next;
+	    }
+	    
 	    if ($row->{status} eq "Paid") {
 		if ( $row->{payout} ) {
 		    $row->{payout} = $row->{payout} * -1 if ($row->{payout} > 0 );
@@ -327,7 +336,7 @@ $payout_batches{$pid}{first_date} = $row->{date}
 
 		# This is marked as an internal transfer from the SumUp "Bank Account" to the Barclays Current Account in OSM.
 	    } else {
-		die "$0: Unknown status $row->{status} for transaction type $row->{'transaction type'} in row $counter{'rowcount'}\nOnly expect type \"Paid\"\n";
+		die "$0: Unknown status $row->{status} for transaction type $row->{'transaction type'} in row $counter{'rowcount'}\nOnly expect type \"Paid\" or \"Scheduled\"\n";
 		# ie "$0: Unknown SumUp transaction type $row->{'transaction type'} in row $counter{'$rowcount'}\n";
 	    } # end if Payout Paid
     } else {

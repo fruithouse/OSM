@@ -283,7 +283,7 @@ while (my $row = $csv->getline_hr ($data)) {
 		die "$0: Unknown payout status '$row->{status}' "
 		    . "in row $counter{'rowcount'}\n";
 	    }
-	    
+
 	    if ($row->{status} eq "Scheduled") {
 		$counter{'scheduled_payout_count'}++;
 		warn "[DEBUG] skipping scheduled payout row $counter{'rowcount'} "
@@ -465,9 +465,9 @@ sub print_output_rows {
 #    for my $out (@output_rows) {
 #	print "$out->{date},$out->{reference},$out->{amount}\n";
     #    }
-    
+
     my @rows_to_print;
-    
+
     if ($sort_mode eq 'grouped') {
         for my $wanted_type (qw(payout fee receipt)) {
             push @rows_to_print, grep { $_->{type} eq $wanted_type } @output_rows;

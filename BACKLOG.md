@@ -167,6 +167,9 @@ Future behaviour:
   Payout status is Paid
   dates match expected format
   currency values are numeric
+
+  Add %known_sale_status and %known_fee_status etc in keeping with %known_payout_status
+
 ```
 
 ## OSM Feature Request

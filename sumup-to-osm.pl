@@ -36,6 +36,12 @@ BEGIN {
 my $version='4.0.0-dev';
 my ($verbose,$debug,$report,$help,$consolidate_payouts,$sort_mode);
 
+my %known_payout_status = (
+    Paid      => 1,
+    Scheduled => 1,
+);
+
+
 GetOptions(
     'verbose+'  => \$verbose, # 0, 1 or 2
     'debug+'  => \$debug, # 0, 1
@@ -272,6 +278,11 @@ while (my $row = $csv->getline_hr ($data)) {
 	    $counter{'payout_count'}++;
 	    warn "[INFO] row $counter{'rowcount'} is Payout row number $counter{'payout_count'}\n" if $verbose;
 
+	    unless ($known_payout_status{$row->{status}}) {
+		die "$0: Unknown payout status '$row->{status}' "
+		    . "in row $counter{'rowcount'}\n";
+	    }
+	    
 	    if ($row->{status} eq "Scheduled") {
 		$counter{'scheduled_payout_count'}++;
 		warn "[DEBUG] skipping scheduled payout row $counter{'rowcount'} "

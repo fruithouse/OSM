@@ -8,89 +8,14 @@ The long-term goal is to eliminate the need for this script entirely by encourag
 
 ## Current Release
 
-Version 3.0 (July 2025)
+Version 4.0 (June 2026)
 
-## In Development (v4.0)
-
-### Payout Consolidation
-
-Add:
-
-```
---consolidate-payouts
-```
-
-Group all payout rows sharing the same SumUp Payout ID into a single output transaction.
-
-Current behaviour:
-
-* One payout row is emitted for each successful sale.
-* Large events can generate hundreds of payout rows.
-* Each payout row must be manually classified as an Internal Transfer within OSM.
-
-Proposed behaviour:
-
-* Emit one consolidated payout transaction per payout batch.
-* Description to include:
-
-  * Number of sales in batch
-  * First and last sale date/time
-  * SumUp Payout ID
-
-Example:
-
-```
-120 sales 20260613T1043-20260614T1550 payout 1718120
-```
-
-The original payout detail remains available in the source SumUp CSV and optional debug output.
-
-### Output Ordering
-
-Add:
-
-```
---sort chronological
---sort grouped
-```
-
-chronological:
-Preserve existing behaviour.
-
-grouped:
-Output rows in the following order:
-
-```
-1. Payouts
-2. Fees
-3. Receipts
-```
-
-This reduces repetitive transaction classification work within OSM.
-
-### Reporting
-
-Add:
-
-```
---report
-```
-
-Provide a reconciliation summary including:
-
-* Number of sales
-* Number of fees
-* Number of payout rows
-* Number of payout batches
-* Gross sales total
-* Fee total
-* Net payout total
-
-May also provide a per-payout summary.
+## Planned (v4.1)
 
 ### Regression Testing
 
-Create a repeatable test process using representative historical transaction exports.
+Create a repeatable formalised documented test process using
+representative historical transaction exports.
 
 Acceptance criteria:
 
@@ -101,14 +26,26 @@ Acceptance criteria:
 
 The v4 output must reconcile exactly with v3 output totals.
 
-## Planned (v4.1)
+## Validation consistency
+
+Current state:
+
+We use a mixture of styles to check the validity of certain fields
+against known values, e.g. Payout Status may be 'Paid' or 'Scheduled'.
+In the case of the latter, we use a hash. In other cases we just
+process the options inline.
+
+Future state:
+All sub-type validity tests will use hashes for clarity and consistency.
+
+## Future Enhancements
 
 ### Tip Handling
 
 Current behaviour:
 
 ```
-Script aborts if a non-zero tip is encountered.
+Script aborts deliberately if a non-zero tip is encountered.
 ```
 
 Future behaviour:
@@ -122,8 +59,6 @@ Future behaviour:
 * Update POD examples.
 * Improve README examples.
 * Document payout consolidation behaviour.
-
-## Future Enhancements
 
 ### Read From STDIN
 
@@ -140,6 +75,7 @@ Permit:
 ```
 sumup-to-osm.pl file1.csv file2.csv ...
 ```
+* This will need to avoid potential duplication of transactions
 
 ### Enhanced Reconciliation Reporting
 

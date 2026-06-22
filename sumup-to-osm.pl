@@ -10,6 +10,8 @@
 # Based on:  https://perlmaven.com/how-to-read-a-csv-file-using-perl
 
 # Ken Bailey, 1 Jan 2023.
+
+# v4 Added --consolidate-payouts and --sort grouped June 2026
 # v3 Added tax and tip count and totals. July 2025
 # v2 Added ignore tip amount Sept 2023
 # v1 Intial script - June 2023
@@ -26,21 +28,18 @@ BEGIN {
         Text::CSV->import();
         1;
     } or die "$0: Missing required module Text::CSV. Try: cpan Text::CSV\n";
+
+# We will probably never use JSON output in this project, but if we did:
 #    eval {
 #        require JSON;
 #        JSON->import();
 #        1;
 #    } or die "$0: Missing required module JSON. Try: cpan JSON\n";
+
 } # end BEGIN!
 
 my $version='4.0.0-dev';
 my ($verbose,$debug,$report,$help,$consolidate_payouts,$sort_mode);
-
-my %known_payout_status = (
-    Paid      => 1,
-    Scheduled => 1,
-);
-
 
 GetOptions(
     'verbose+'  => \$verbose, # 0, 1 or 2
@@ -90,7 +89,6 @@ if ($verbose || $report) {
     warn "[INFO] Input file: $ARGV[0] \n";
 }
 
-
 # hash for various counters and totals
 my %counter = (
     rowcount => 0,
@@ -116,12 +114,12 @@ my %payout_batches;
 # place to add payout consolidation and grouped output ordering.
 my @output_rows;
 
-# hash to store, then count, card types
-# my $cardtype; # not yet used but its VISA, MASTERCARD or AMEX.
+# We may want to add a hash to store, then count, transactions per card type
+# my $cardtype; # not yet used but known values so far are just VISA, MASTERCARD or AMEX.
 
 open(my $data, '<', $file) or die "Could not open '$file' $!\n";
 
-# Build hash to validate header row names
+# Build hash to validate SumUp transaction log CSV header row names
 # We could put these in an array and use a module instead
 my %known = (
     "email" => "email",
@@ -146,6 +144,13 @@ my %known = (
     "payout id" => "payout id",
     "reference" => "reference",
     );
+
+# Build hashes for validating known sub-values
+
+my %known_payout_status = (
+    Paid      => 1,
+    Scheduled => 1,
+);
 
 # Establish CSV object
 my $csv = Text::CSV->new({ sep_char => ',', binary => 1, auto_diag => 1 });
@@ -177,10 +182,11 @@ while (my $row = $csv->getline_hr ($data)) {
     $row->{'tip amount'} = decimalise($row->{'tip amount'}) if $row->{'tip amount'};
     #
     # 'transaction type' is either "Sale" or "Payout"
+    # This is a candidate for re-working to match %known_payout_status
     if ($row->{'transaction type'} eq "Sale") {
 	print "\n[INFO] processing row $counter{'rowcount'}: $row->{'transaction type'} $row->{status}\n" if ($verbose > 1);
      	# status is either "Successful", "Failed" or "Cancelled"
-
+	# This is another candidate for re-working to match %known_payout_status
 	# Lets handle the Failed cases first
 	if ($row->{status} =~ m/failed|cancelled/i ) {
 
@@ -264,7 +270,14 @@ while (my $row = $csv->getline_hr ($data)) {
 	    # This can include spaces, alphanumerics and the characters @ ( ) . -
 	    # Modify description to more clearly identify text input from terminal if any;
 
-	    # The second field is the "Reference" - it is a free text field in OSM, so we pack it with as much useful data as we can squeeze in.
+	    # The second field is the "Reference" - it is a free text
+	    # field in OSM, so we pack it with as much useful data as
+	    # we can squeeze in, however there seems to be a character
+	    # limit of 51 characters in our SumUp OSM bank account
+	    # transaction log. Nevertheless, we squeeze what we can in
+	    # here to assist any subsequent forensic examination.
+	    # We may want to reconsider the ordering though.
+
 	    my $reference = "$row->{status} transaction $row->{'card type'} $row->{'process as'} $row->{'last 4 digits'} "
 	                  . lc($row->{'payment method'}) . " " . lc($row->{'entry mode'})
 	                  . ": $row->{total} $row->{description}";
@@ -273,7 +286,6 @@ while (my $row = $csv->getline_hr ($data)) {
 	} else {
 	    die "$0: status $row->{status} at row $counter{'rowcount'} is neither Failed, Cancelled nor Successful!\n";
 	}
-
 
 	} elsif ($row->{'transaction type'} eq "Payout" ) {
 	    $counter{'payout_count'}++;
@@ -309,10 +321,12 @@ while (my $row = $csv->getline_hr ($data)) {
 		$payout_batches{$pid}{gross_total} += $row->{total};
 		$payout_batches{$pid}{fee_total}   += $row->{fee};
 		$payout_batches{$pid}{net_total}   += $row->{payout};
+		$payout_batches{$pid}{first_date} = $row->{date}
 
-#		$payout_batches{$pid}{first_date} //= $row->{date};
-#		$payout_batches{$pid}{last_date}   = $row->{date};
-$payout_batches{$pid}{first_date} = $row->{date}
+		# We endeavour to capture the earliest and latest
+		# dates of transactions associatied with a given
+		# payout.
+
 		if !defined $payout_batches{$pid}{first_date}
 		|| $row->{date} lt $payout_batches{$pid}{first_date};
 
@@ -328,14 +342,14 @@ $payout_batches{$pid}{first_date} = $row->{date}
 				 $row->{fee}
 		    );
 
-		# Queue the payout as an internal transfer row for OSM.
-		# In v4 this row may be suppressed and replaced by a consolidated
-		# payout batch row when --consolidate-payouts is enabled.
-### was:
-##		queue_output_row('payout', $row->{'payout date'},
-##				 " payout $row->{'payout id'} raised $row->{date} ($row->{'total'} minus $row->{fee}) $row->{description}",
-##		    $row->{payout}
-##		);
+		# Queue the payout as an internal transfer row for
+		# OSM.  Non-debug output is suppressed and replaced by
+		# a consolidated payout batch row when
+		# --consolidate-payouts is enabled.
+		# We will probably make this the default as it saves
+		# having to process multiple internal transfer
+		# transactions that are already batched in practice.
+
 		if ($consolidate_payouts) {
 		    warn "[DEBUG] suppressing payout row for batch $pid amount $row->{payout}\n" if $debug;
 		} else {
@@ -345,34 +359,17 @@ $payout_batches{$pid}{first_date} = $row->{date}
 			);
 		}
 
-
-
-		# This is marked as an internal transfer from the SumUp "Bank Account" to the Barclays Current Account in OSM.
+		# This is marked as an internal transfer from the SumUp "Bank Account" to the Group's Current Account in OSM.
+		# YMMV if you have a SumUp Business account.
 	    } else {
 		die "$0: Unknown status $row->{status} for transaction type $row->{'transaction type'} in row $counter{'rowcount'}\nOnly expect type \"Paid\" or \"Scheduled\"\n";
 		# ie "$0: Unknown SumUp transaction type $row->{'transaction type'} in row $counter{'$rowcount'}\n";
 	    } # end if Payout Paid
     } else {
 	die "$0: [FATAL] Row $counter{'rowcount'} transaction type $row->{'transaction type'} is neither Sale nor Payout!\n";
-    } # end row tansaction type
-}
+    } # end if $row->{transaction type'} ....
 
-	    ######################################################################
-	    # end if $row->{transaction type'} ....
-
-	    # build description and output new row for OSM
-##	    $row->{description} = ". $row->{description}." if $row->{description};
-##
-##	    # we print the date, then an aggregate of the transaction information as a description, then the amount as three comma-sparated values for OSM.
-##	    print "$row->{date}, $row->{'card type'} $row->{'process as'} $row->{'last 4 digits'} " . lc($row->{'payment method'}) . " " . lc($row->{'entry mode'}) . "$row->{description}, $row->{total}\n";
-##	    #    $row->{'net sale'} = decimalise($row->{'net sale'}) if $row->{'net sale'};
-##
-##	} else {
-##	    warn "$0: unknown SumUp transaction status for transaction type $row->{'transaction type'}: $row->{status} in row $counter{'rowcount'}\n";
-##
-##	} # end if $row->{status} ...
-##
-	 # end while rows of the input CSV.
+} # end while (my $row = $csv->getline_hr...
 
 if ($consolidate_payouts) {
     for my $pid (sort keys %payout_batches) {
@@ -386,7 +383,7 @@ if ($consolidate_payouts) {
         warn "[DEBUG] consolidated payout batch $pid as $b->{payout_date},$reference,"
            . decimalise($b->{net_total}) . "\n" if $debug;
     }
-}
+} # end if ($consolidate_payouts)
 
 # Print CSV output after all input rows have been processed.
 print_output_rows();
@@ -404,13 +401,6 @@ if ($verbose||$report) {
     if ($report) {
 	warn "\n[INFO] Payout batches:\n";
 
-#	for my $pid (sort keys %payout_batches) {
-#	    warn "  $pid: "
-#		. $payout_batches{$pid}{count}
-#	    . " sales, net "
-#		. decimalise($payout_batches{$pid}{net_total})
-#		. "\n";
-	#	}
 	for my $pid (sort keys %payout_batches) {
 	    my $b = $payout_batches{$pid};
 
@@ -424,7 +414,7 @@ if ($verbose||$report) {
 
     print STDERR "\n[INFO] Summary:\n";
     for my $key (sort keys %counter) {
-#        printf STDERR "  %-22s %d\n", $key, $counter{$key};
+
 	my $reportval = $counter{$key};
 	if ( $key =~ /^\s*total/ ) {
 	    $reportval = decimalise($reportval);
@@ -461,10 +451,6 @@ sub queue_output_row {
 #======================================================================
 sub print_output_rows {
     print "Date,Reference,Amount\n";
-
-#    for my $out (@output_rows) {
-#	print "$out->{date},$out->{reference},$out->{amount}\n";
-    #    }
 
     my @rows_to_print;
 
@@ -507,7 +493,7 @@ sub decimalise {
 	$value .= "0";
     }
     if ($value =~ /\d+\.\d\d\d+/ ) {
-	# we have accumulated more than twodecimal places so round off
+	# we have accumulated more than two decimal places so round off
 	warn "[INFO] value $value has more than two decimals.\n" if ($verbose > 1);
 	$value = int($value * 10**2 + 0.5) / 10**2 ; # +0.5 is magical sauce to do rounding instead of truncating
 	warn "[INFO] Rounded to $value\n" if ($verbose > 1);
@@ -545,12 +531,15 @@ OSM so you know the required start date for the report.
 
 Log into the SumUp managerial interface on a desktop browser.
 
-From the three bars in the top left, select and expand the Home menu, select overview and click "Download Centre". This takes you to https://me.sumup.com/en-gb/reports/download-center.
+From the three bars in the top left, select and expand the Home menu,
+select overview and click "Download Centre". This takes you to
+https://me.sumup.com/en-gb/reports/download-center.
 
 Select "Transactions" and choose the correct date range, typically from
 the day after the last date in the OSM SumUp transactions to the present.
 
-Choose CSV for the output format, do not add any filters, and don't use the "old format" (it will work but contains less information).
+Choose CSV for the output format, do not add any filters, and don't
+use the "old format" (it will work but contains less information).
 
 Click "Export file". This will save a file with the name in the format
 <start date>-<end date>-<client ID>-transactions-report.csv with dates
@@ -566,8 +555,8 @@ The daily Payout Report is useful for checking consolidated payout
 totals against the bank statement, but the Transaction Report CSV
 remains the preferred input because it contains the detail needed to
 produce separate OSM receipt and fee rows. Prior to 2026, the payout
-transaction reference in the CSV matched the payout reference in the
-payout bank transfer description, but now they differ, so any
+transaction reference (PID) in the CSV matched the payout reference in
+the payout bank transfer description, but now they differ, so any
 reconciliation now has to depend on just date and amount.
 
 =head1 OPTIONS
@@ -581,12 +570,12 @@ This can be provided as an argument or piped via STDIN.
 
 =item B<--consolidate-payouts>
 
-Accepted for v4 development. Will consolidate payout rows by SumUp Payout ID.
+Consolidates payout rows by SumUp Payout ID.
 
 =item B<--sort> B<chronological|grouped>
 
-Accepted for v4 development. C<chronological> preserves the current output order.
-C<grouped> will output payouts, fees, then receipts.
+C<chronological> preserves the input order in output.
+C<grouped> groups output by payouts, fees, then receipts.
 
 =item B<--report>
 
@@ -598,7 +587,7 @@ Prints descriptive messages whilst processing and the summary report when comple
 
 =item B<--version>
 
-Show version number (3.0) and exit.
+Show version number (4.0.0-dev) and exit.
 
 =item B<--help>
 

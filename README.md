@@ -1,6 +1,6 @@
 # SumUp to OSM Converter
 
-A Perl utility to convert SumUp (https://sumup.com) transaction reports into a simplified CSV format suitable for import into Online Scout Manager (OSM) Accountancy Tools.
+A Perl utility to convert SumUp (https://sumup.com) CSV transaction reports into a simplified CSV format suitable for import into Online Scout Manager (OSM) Accountancy Tools.
 
 ## Background
 
@@ -14,6 +14,7 @@ This script:
 * Combines relevant transaction information into a single reference field.
 * Ignores failed and cancelled transactions.
 * Reports unexpected tax and tip values.
+* Provides a summary with totals
 
 The script was originally developed for use by UK Scout Groups using Online Scout Manager (OSM https://www.onlinescoutmanager.co.uk/) Accountancy Tools, but may be useful for other organisations using SumUp.
 
@@ -69,7 +70,7 @@ which can be imported into an OSM bank account.
 
 ## Status
 
-Current version: 3.0
+Current version: 4.0
 
 The repository history preserves major development milestones from 2023 onwards.
 

@@ -39,7 +39,7 @@ BEGIN {
 
 } # end BEGIN!
 
-my $version='4.0.2';
+my $version='4.0.3';
 my ($verbose,$debug,$report,$help,$consolidate_payouts,$sort_mode);
 
 GetOptions(
@@ -589,7 +589,7 @@ last date in the OSM SumUp transactions to the present, then select
 'Transactions'.
 
 Choose CSV for the output format, do not add any filters, and don't
-use the "old format" (it will work but contains less information).
+use the "old format" (it will be recognised but rejected).
 
 Click "Export file". This will save a file with the name in the format
 <start date>-<end date>-<client ID>-transactions-report.csv with dates

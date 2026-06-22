@@ -45,6 +45,9 @@ Generate a transaction report from the SumUp web interface:
 5. Export **Transactions** as CSV.
 6. Use the resulting CSV file as input.
 
+NB Do not export transactions in the "Old format", it lacks the
+required fields. It will be recognised but rejected.
+
 Run:
 
 ```
@@ -108,7 +111,7 @@ SumUp transaction report will soon need to be processed.
 
 ## Status
 
-Current version: 4.0
+Current version: 4.x
 
 The repository history preserves major development milestones from 2023 onwards.
 

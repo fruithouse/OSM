@@ -39,7 +39,7 @@ BEGIN {
 
 } # end BEGIN!
 
-my $version='4.0.1';
+my $version='4.0.2';
 my ($verbose,$debug,$report,$help,$consolidate_payouts,$sort_mode);
 
 GetOptions(
@@ -170,10 +170,49 @@ $csv->header ($data, { munge_column_names => sub {
     s/\s+$//;
     s/^\s+//;
     # check header name against known names
-    $known{lc $_} or die "$0: Unknown column header '$_' in $data";
-		       }
+    $known{lc $_} or die "$0: '$file' is not a recognised current SumUp Transaction Report CSV: unknown column header '$_'\n";
+                       }
+              }
+    ); # End new csv->header
+
+my %seen_headers = map { lc($_) => 1 } $csv->column_names;
+
+my @modern_required_headers = (
+    'date',
+    'transaction id',
+    'transaction type',
+    'status',
+    'description',
+    'total',
+    'fee',
+    'payout',
+    'payout date',
+    'payout id',
+);
+
+my @legacy_indicators = (
+    'transaction code',
+    'net sale',
+    'fee amount',
+);
+
+my $legacy_hits = 0;
+for my $header (@legacy_indicators) {
+    $legacy_hits++ if $seen_headers{$header};
+}
+
+if ($legacy_hits >= 2 && !$seen_headers{'transaction type'}) {
+    die "$0: '$file' appears to be a legacy SumUp export format.\n"
+      . "Please re-export using the current SumUp Transaction Report CSV format.\n"
+      . "The legacy format lacks transaction type and payout ID fields required by this version.\n";
+}
+
+for my $required (@modern_required_headers) {
+    die "$0: '$file' is not a recognised current SumUp Transaction Report CSV: "
+      . "missing required column '$required'.\n"
+      unless $seen_headers{$required};
 	      }
-    );
+
 
 # The OSM CSV header is printed later by print_output_rows(), after all
 # output rows have been queued.
@@ -338,13 +377,13 @@ while (my $row = $csv->getline_hr ($data)) {
 		$payout_batches{$pid}{first_date} = $row->{date}
 		if !defined $payout_batches{$pid}{first_date}
 		|| $row->{date} lt $payout_batches{$pid}{first_date};
-		
+
 		$payout_batches{$pid}{last_date} = $row->{date}
 		if !defined $payout_batches{$pid}{last_date}
 		|| $row->{date} gt $payout_batches{$pid}{last_date};
 
 		$payout_batches{$pid}{payout_date} = $row->{'payout date'};
-		
+
 		# Queue the SumUp fee as a separate output row for OSM.
 		queue_output_row('fee', $row->{date},
 				 " transaction fee against $row->{total} $row->{description}",

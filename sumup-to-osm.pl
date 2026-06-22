@@ -39,7 +39,7 @@ BEGIN {
 
 } # end BEGIN!
 
-my $version='4.0.0';
+my $version='4.0.1';
 my ($verbose,$debug,$report,$help,$consolidate_payouts,$sort_mode);
 
 GetOptions(
@@ -60,6 +60,10 @@ if ($help) {
     }
 }
 
+# normalise
+$verbose ||= 0;
+$debug ||= 0;
+$report ||= 0;
 $consolidate_payouts ||= 0;
 $sort_mode ||= 'chronological';
 
@@ -339,6 +343,8 @@ while (my $row = $csv->getline_hr ($data)) {
 		if !defined $payout_batches{$pid}{last_date}
 		|| $row->{date} gt $payout_batches{$pid}{last_date};
 
+		$payout_batches{$pid}{payout_date} = $row->{'payout date'};
+		
 		# Queue the SumUp fee as a separate output row for OSM.
 		queue_output_row('fee', $row->{date},
 				 " transaction fee against $row->{total} $row->{description}",

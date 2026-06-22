@@ -26,17 +26,28 @@ Acceptance criteria:
 
 The v4 output must reconcile exactly with v3 output totals.
 
-## Validation consistency
+### Validation consistency
+
+Background:
+
+Several fields have a limited number of valid values:
+```
+Sale    -> Successful
+Sale    -> Failed
+Sale    -> Cancelled
+Payout  -> Scheduled
+Payout  -> Paid
+```
 
 Current state:
 
-We use a mixture of styles to check the validity of certain fields
-against known values, e.g. Payout Status may be 'Paid' or 'Scheduled'.
-In the case of the latter, we use a hash. In other cases we just
-process the options inline.
+ We use a mixture of styles to check the validity of certain fields
+ against known values, e.g. Payout Status may be 'Paid' or 'Scheduled'.
+ In the case of the latter, we use a hash. In other cases we just
+ process the options inline.
 
 Future state:
-All sub-type validity tests will use hashes for clarity and consistency.
+ All sub-type validity tests will use hashes for clarity and consistency.
 
 ## Future Enhancements
 

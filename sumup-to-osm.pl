@@ -14,7 +14,7 @@
 # v4 Added --consolidate-payouts and --sort grouped June 2026
 # v3 Added tax and tip count and totals. July 2025
 # v2 Added ignore tip amount Sept 2023
-# v1 Intial script - June 2023
+# v1 Initial script - June 2023
 
 use strict;
 use warnings;
@@ -29,7 +29,8 @@ BEGIN {
         1;
     } or die "$0: Missing required module Text::CSV. Try: cpan Text::CSV\n";
 
-# We will probably never use JSON output in this project, but if we did:
+# We will probably never use JSON output in this project, but, as an
+# example of adding another non-core module:
 #    eval {
 #        require JSON;
 #        JSON->import();
@@ -38,7 +39,7 @@ BEGIN {
 
 } # end BEGIN!
 
-my $version='4.0.0-dev';
+my $version='4.0.0';
 my ($verbose,$debug,$report,$help,$consolidate_payouts,$sort_mode);
 
 GetOptions(
@@ -146,6 +147,10 @@ my %known = (
     );
 
 # Build hashes for validating known sub-values
+
+# Known payout statuses observed in SumUp Transaction Reports.
+# Unknown values are treated as fatal so that silent changes in
+# SumUp report formats are detected promptly.
 
 my %known_payout_status = (
     Paid      => 1,
@@ -321,20 +326,18 @@ while (my $row = $csv->getline_hr ($data)) {
 		$payout_batches{$pid}{gross_total} += $row->{total};
 		$payout_batches{$pid}{fee_total}   += $row->{fee};
 		$payout_batches{$pid}{net_total}   += $row->{payout};
+
+		# Capture the earliest and latest transaction dates associated with
+		# this SumUp payout batch. Input rows are not guaranteed to be in
+		# chronological order, so compare ISO-like date strings rather than
+		# trusting first-seen/last-seen order.
 		$payout_batches{$pid}{first_date} = $row->{date}
-
-		# We endeavour to capture the earliest and latest
-		# dates of transactions associatied with a given
-		# payout.
-
 		if !defined $payout_batches{$pid}{first_date}
 		|| $row->{date} lt $payout_batches{$pid}{first_date};
-
+		
 		$payout_batches{$pid}{last_date} = $row->{date}
 		if !defined $payout_batches{$pid}{last_date}
 		|| $row->{date} gt $payout_batches{$pid}{last_date};
-		$payout_batches{$pid}{payout_date} = $row->{'payout date'};
-		#
 
 		# Queue the SumUp fee as a separate output row for OSM.
 		queue_output_row('fee', $row->{date},
@@ -516,7 +519,7 @@ Online Scout Manager (OSM) Accountancy Tools
 
   perl sumup-to-osm sumup-transaction-report-filename.csv [--report] [--verbose] [--help] [--version] [--consolidate-payouts] [--sort chronological|grouped]
 
-  A script to covert SumUp transaction reports for import into an OSM
+  A script to convert SumUp transaction reports for import into an OSM
   Accountancy Tools Bank Account.
 
 =head1 DESCRIPTION
@@ -531,12 +534,14 @@ OSM so you know the required start date for the report.
 
 Log into the SumUp managerial interface on a desktop browser.
 
-From the three bars in the top left, select and expand the Home menu,
-select overview and click "Download Centre". This takes you to
+From the three horizontal bars Navigation Menu in the top left corner
+of the page, select and expand the Home menu, select overview and
+click "Download center". This takes you to
 https://me.sumup.com/en-gb/reports/download-center.
 
-Select "Transactions" and choose the correct date range, typically from
-the day after the last date in the OSM SumUp transactions to the present.
+Adjust the date range as appropriate, typically from the day after the
+last date in the OSM SumUp transactions to the present, then select
+'Transactions'.
 
 Choose CSV for the output format, do not add any filters, and don't
 use the "old format" (it will work but contains less information).
@@ -554,10 +559,22 @@ retain those for your end of year accounts too.
 The daily Payout Report is useful for checking consolidated payout
 totals against the bank statement, but the Transaction Report CSV
 remains the preferred input because it contains the detail needed to
-produce separate OSM receipt and fee rows. Prior to 2026, the payout
-transaction reference (PID) in the CSV matched the payout reference in
-the payout bank transfer description, but now they differ, so any
-reconciliation now has to depend on just date and amount.
+produce separate OSM receipt and fee rows.
+
+SumUp payouts comprise the net amount of aggregated sale values minus
+fees. SumUp batch these depending on customer type and chosen
+preference, typically daily (next business day), Weekly on Mondays or
+Monthly on the third business day of the month.
+
+SumUp therefore track the payout status for every transaction as
+either 'Scheduled' or 'Paid'.
+
+Whilst 'Scheduled', the payout date and payout id fields are blank but
+once 'Paid', payout date is set and the payout id is assigned a unique
+Payout ID (PID). Prior to 2026, the PID was cited in payout bank
+transfer description, but now the bank transfer is assigned a separate
+unique reference, so any reconciliation now has to depend on just date
+and amount.
 
 =head1 OPTIONS
 
@@ -570,7 +587,9 @@ This can be provided as an argument or piped via STDIN.
 
 =item B<--consolidate-payouts>
 
-Consolidates payout rows by SumUp Payout ID.
+Consolidates multiple payout rows sharing the same SumUp Payout ID
+into a single payout row. This significantly reduces the number of
+internal transfer transactions that must be classified manually in OSM.
 
 =item B<--sort> B<chronological|grouped>
 
@@ -579,7 +598,7 @@ C<grouped> groups output by payouts, fees, then receipts.
 
 =item B<--report>
 
-Prints a dignostic summary report at the end of processing. The report is printed to STDERR.
+Prints a diagnostic summary report at the end of processing. The report is printed to STDERR.
 
 =item B<--verbose> I<filename>
 
@@ -587,7 +606,7 @@ Prints descriptive messages whilst processing and the summary report when comple
 
 =item B<--version>
 
-Show version number (4.0.0-dev) and exit.
+Show program version and exit.
 
 =item B<--help>
 
